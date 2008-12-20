@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2005 Michael Gold
+# Copyright (c) 2005,2008 Michael Gold
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -30,8 +30,6 @@ import os.path
 import array
 
 bufsize = 65536
-
-#TODO: fail on mp2/mp1 files
 
 def copy_file(src, dst, length=None):
 	# if length==None, go until EOF
@@ -163,7 +161,7 @@ def fix_mp3(filename, output_filename, analyze):
 	eof_pos = pos
 	if not frames:
 		print >> sys.stderr, 'No music frames found'
-		sys.exit(1) 
+		sys.exit(1)
 	
 	if frames: abr = br_tot / len(frames)
 	else: abr = None
