@@ -22,7 +22,7 @@
 from __future__ import division, absolute_import
 import array
 import struct
-from . import mp3bits, errors
+from . import mp3bits, errors, side_info
 
 
 
@@ -47,17 +47,23 @@ Standard fields:
 """
 	
 	def __len__(self):
-		sz = 4
-		if self.header.protection_bit == 0:
-			sz += 2
-		if self.header.layer_index == 1:  # layer 3
-			sz += len(self.side_info.raw_data)
+		return self.header.body_offset + len(self.raw_body)
+	
+	def init(self):
+		if hasattr(self, 'header'):
+			head = self.header
+		else:
+			self.header = head = FrameHeader()
 		
-		sz += len(self.raw_body)
-		return sz
+		if not hasattr(self, 'side_info'):
+			self.side_info = side_info.SideInfo(
+					head.version_index, head.channel_mode)
+		
+		if not hasattr(self, 'raw_body'):
+			self.raw_body = array.array('B')
 	
 	def encode(self, validate=True):
-		"""encode() -> byte array
+		"""encode(validate=True) -> byte array
 
 Encode the frame and return the raw data as a byte array.
 This will automatically encode and checksum the header and side info."""
@@ -73,8 +79,7 @@ This will automatically encode and checksum the header and side info."""
 		
 		if head.layer_index == 1:  # layer 3
 			raw_si = self.side_info.raw_data
-			sidesz = mp3bits.side_info_size(
-					head.version_index, head.channel_mode)
+			sidesz = head.side_info_size
 			if len(raw_si) != sidesz and validate:
 				raise errors.MP3UsageError("side info is the wrong length")
 			
@@ -85,13 +90,13 @@ This will automatically encode and checksum the header and side info."""
 			data.extend(raw_si)
 		
 		data.extend(self.raw_body)
-		
 		if validate:
-			sz = mp3bits.frame_size(head.version_index,
-					head.layer_index, head.bitrate_index,
-					head.samplerate_index, head.padded)
-			if (len(data) != sz) and sz:
-				raise errors.MP3UsageError("raw_body is the wrong length")
+			sz = head.frame_size
+			if sz:
+				if (len(data) != sz) and sz:
+					data.fromstring( '\0' * (sz - len(data)) )
+				elif (len(data) != sz):
+					raise errors.MP3UsageError("raw_body is the wrong length")
 		
 		if need_crc:
 			crc = self.calc_crc()
@@ -99,6 +104,12 @@ This will automatically encode and checksum the header and side info."""
 			data[5] = crc & 0xff
 		
 		return data
+	
+	def tofile(self, file):
+		"""tofile(file) -> None
+
+Encode the frame and write it to the given file."""
+		self.encode().tofile(file)
 	
 	def calc_crc(self):
 		"""calc_crc() -> int
@@ -113,15 +124,11 @@ automatically update/encode anything."""
 		if layer_index == 1:  # layer 3
 			val = crc16(self.side_info.raw_data, val)
 		elif layer_index == 3:  # layer 1
-			bytes = mp3bits.protected_byte_count(
-					layer_index, self.head.channel_mode)
+			bytes = head.protected_byte_count
 			val = crc16(self.raw_body[:bytes], val)
 		elif layer_index == 2:  # layer 2
 			#TODO: test this
-			bits = mp3bits.protected_bit_count(
-					layer_index, head.bitrate_index,
-					head.samplerate_index, head.channel_mode)
-			
+			bits = head.protected_bit_count
 			last_byte = bits // 8
 			bits %= 8
 			
@@ -287,6 +294,62 @@ class FrameHeader(object):
 				| (mask('copy_control', 1) << 3)
 				| (mask('original', 1) << 2)
 				| mask('emphasis', 3) )
+	
+	def get_body_offset(self):
+		offset = 4
+		if self.protection_bit == 0:
+			offset += 2
+		if self.layer_index == 1:  # layer 3
+			offset += self.get_side_info_size()
+		
+		return offset
+	body_offset = property(get_body_offset)
+	
+	def get_body_size(self):
+		return self.get_frame_size() - self.get_body_offset()
+	body_size = property(get_body_size)
+	
+	def get_samples_per_frame(self):
+		return mp3bits.samples_per_frame(self.version_index, self.layer_index)
+	samples_per_frame = property(get_samples_per_frame)
+	
+	def get_samplerate(self):
+		return mp3bits.samplerate(self.version_index, self.samplerate_index)
+	samplerate = property(get_samplerate)
+	
+	def get_bitrate(self):
+		return mp3bits.bitrate(self.version_index,
+				self.layer_index, self.bitrate_index)
+	bitrate = property(get_bitrate)
+	
+	def get_sample_size(self):
+		return mp3bits.sample_size(self.layer_index)
+	sample_size = property(get_sample_size)
+	
+	def get_frame_size(self):
+		return mp3bits.frame_size(self.version_index, self.layer_index,
+				self.bitrate_index, self.samplerate_index, self.padded)
+	frame_size = property(get_frame_size)
+	
+	def get_side_info_size(self):
+		return mp3bits.side_info_size(self.version_index, self.channel_mode)
+	side_info_size = property(get_side_info_size)
+	
+	def get_side_info_bit_offsets(self):
+		return mp3bits.side_info_bit_offsets(
+				self.version_index, self.channel_mode)
+	side_info_bit_offsets = property(get_side_info_bit_offsets)
+	
+	def get_protected_bit_count(self):
+		return mp3bits.protected_bit_count(self.version_index,
+				self.layer_index, self.bitrate_index,
+				self.samplerate_index, self.channel_mode)
+	protected_bit_count = property(get_protected_bit_count)
+	
+	def get_protected_byte_count(self):
+		return mp3bits.protected_byte_count(self.version_index,
+				self.layer_index, self.channel_mode)
+	protected_byte_count = property(get_protected_byte_count)
 
 
 class XingHeader(object):
@@ -308,17 +371,20 @@ Standard fields:
 				raise ValueError('offset needed when frame given')
 			self.decode(frame, offset)
 	
-	def encode(self, frame, offset):
+	def encode(self, frame, offset=None, pad=True):
+		if offset is None:
+			offset = -2 if (frame.header.protection_bit == 0) else 0
+		
 		data = array.array('B')
 		def write_uint(val):
 			data.fromstring(struct.pack('!I', val))
 		
 		if self.cbr_mode:
-			data = _Info[:]
+			data.fromstring('Info')
 		else:
-			data = _Xing[:]
+			data.fromstring('Xing')
 		
-		flags = self.flags & ~0xf
+		flags = getattr(self, 'flags', 0) & ~0xf
 		flags |= 1 if self.frame_count is not None else 0
 		flags |= 2 if self.byte_count is not None else 0
 		flags |= 4 if self.seek_table is not None else 0
@@ -334,12 +400,38 @@ Standard fields:
 			data.extend(self.seek_table)
 		if flags & 8: write_uint(self.quality)
 		
-		end_pos = len(data) + offset
 		if self.extended_data:
 			data.extend(self.extended_data)
 		
+		if pad:
+			sz = frame.header.frame_size
+			if not sz:
+				raise errors.MP3UsageError("can't auto-pad freeform frames")
+			
+			padding = sz - (frame.header.body_offset + offset + len(data))
+			data.fromstring('\0' * padding)
+		
 		frame.set_body_at_offset(offset, data)
-		return end_pos  # position of extended_data in frame.raw_body
+	
+	def unpad(self):
+		d = self.extended_data
+		if not d: return
+		
+		extpos = self.calc_size() - len(d)
+		ext = d[extpos:].tostring().rstrip('\0')
+		d[extpos:] = d[:0]
+		d.fromstring(ext)
+	
+	def calc_size(self):
+		size = 8  # 'Xing'+flags
+		if self.frame_count is not None: size += 4
+		if self.byte_count is not None: size += 4
+		if self.seek_table is not None: size += 100
+		if self.quality is not None: size += 4
+		if self.extended_data:
+			size += len(self.extended_data)
+		
+		return size
 	
 	def decode(self, frame, offset):
 		data = frame.get_body_at_offset(offset)
@@ -376,6 +468,12 @@ class CommentTag(object):
 	
 	def __str__(self):
 		return self.raw_data
+	
+	def tofile(self, file):
+		"""tofile(file) -> None
+
+Writes the tag to the given file."""
+		self.raw_data.tofile(file)
 
 
 # CRC functions

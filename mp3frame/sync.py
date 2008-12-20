@@ -254,12 +254,9 @@ Return value:
 			headsz += 2
 		
 		try:
-			sz = mp3bits.frame_size(head.version_index, head.layer_index,
-					head.bitrate_index, head.samplerate_index, head.padded)
-			
+			sz = head.frame_size
 			if head.layer_index == 1:  # layer 3
-				sidesz = mp3bits.side_info_size(
-						head.version_index, head.channel_mode)
+				sidesz = head.side_info_size
 			else:
 				sidesz = 0
 			
@@ -286,7 +283,7 @@ Return value:
 			# expected size
 			sz = self.base_framesize
 			if head.padding:
-				sz += mp3bits.sample_size(head.layer_index)
+				sz += head.sample_size
 		
 		if not sz:
 			# this is a free-format frame; we don't know the expected size,
@@ -326,7 +323,7 @@ Return value:
 			if self.base_framesize < 0:
 				base_sz = sz
 				if head.padding:
-					base_sz -= mp3bits.sample_size(head.layer_index)
+					base_sz -= head.sample_size
 				self.base_framesize = base_sz
 		
 		assert sz > 0

@@ -81,7 +81,6 @@ _spf_table = (  # indexed by B,C (version,layer)
 	( None, 1152, 1152,  384 ),  # B = 03 (V2)
 )
 
-
 def samples_per_frame(version_index, layer_index):
 	"""samples_per_frame(version_index, layer_index) -> int
 

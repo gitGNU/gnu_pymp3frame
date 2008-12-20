@@ -23,6 +23,7 @@ Constants and utility functions for dealing with non-standard data fields
 like comment tags that appear in MPEG audio files.  Like mp3bits, the
 functions in this module work with raw data."""
 
+from . import errors
 
 def identify_tag(data, eof):
 	"""Identify the comment tag at the beginning of the byte array.
@@ -202,3 +203,10 @@ def lyrics3v1_size(data, eof):
 		return taglen
 	else:
 		return 0
+
+# extensions used for MPEG audio filenames
+file_exts = ('.mp3', '.mp2', '.mp1')
+def file_extension(version_index):
+	if version_index == 0:
+		raise errors.MP3ReservedError("Reserved MPEG version")
+	ret = file_exts[version_index - 1]
