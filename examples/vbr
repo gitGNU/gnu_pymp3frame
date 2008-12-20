@@ -236,7 +236,7 @@ def main():
 	except getopt.GetoptError, e: usage_err_exit(e)
 	
 	if opt_value(opt, '-h', '--help') != None:
-		print "Usage: %s [OPTION] MP3FILE"
+		print "Usage: %s [OPTION] MP3FILE" % sys.argv[0]
 		print "Read MP3FILE and add a varible bitrate header."
 		print "Outputs to MP3FILE.out.mp3 by default."
 		print
