@@ -29,26 +29,6 @@ import struct
 import os.path
 import array
 
-bufsize = 65536
-
-def copy_file(src, dst, length=None):
-	# if length==None, go until EOF
-	
-	copied = 0
-	while 1:
-		if length == None:
-			buf = src.read(bufsize)
-			if not buf: break  # EOF
-		else:
-			data_left = length - copied
-			if data_left <= 0: break
-			
-			buf = src.read(min(bufsize, data_left))
-			if not buf: raise IOError('hit EOF while reading data')
-		
-		dst.write(buf)
-		copied += len(buf)
-
 def make_xing_frame(frames, template_header, abr, start_offset, eof_pos):
 	# The header from the file's first music frame is used as a template
 	# for the VBR frame header. The bitrate is changed to be as close as
