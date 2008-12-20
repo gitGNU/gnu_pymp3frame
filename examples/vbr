@@ -83,8 +83,6 @@ def make_xing_frame(frames, template_header, abr, start_offset, eof_pos):
 	frame = mp3frame.frames.MP3Frame()
 	frame.header = newhead
 	frame.init()
-	#frame.side_info.fromstring('\0' * newhead.side_info_size)
-	frame.body = array.array('B')
 	xing_header.encode(frame)
 	return frame
 
