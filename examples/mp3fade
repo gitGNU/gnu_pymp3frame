@@ -1,0 +1,151 @@
+#!/usr/bin/python
+#
+# Copyright (c) 2008 Michael Gold
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+from __future__ import division
+from optparse import OptionParser
+import mp3frame.sync, mp3frame.frames
+import getopt
+import sys
+import struct
+import os.path
+import array
+
+
+#########################
+
+
+def usage_err_exit(message):
+	print >> sys.stderr, "%s: %s" % (sys.argv[0], message)
+	print >> sys.stderr, \
+			"Try `%s --help' for more information." % (sys.argv[0],)
+	sys.exit(2)
+
+
+def adjust_gain(input_file, output_file, atend, adjust_fn, adj_args):
+	def adj_frame(fr):
+		if fr.header.layer_index != 1:
+			print >> sys.stderr, 'Not an MPEG layer 3 audio file'
+			sys.exit(1)
+		elif fr.identify_vbr_header():
+			return
+		
+		arg = adj_args.pop(0) #XXX
+		for ch in fr.side_info.channels:
+			for gr in ch.granules:
+				gr.global_gain = adjust_fn(gr.global_gain, arg)
+		item.encode()
+	
+	saved = []
+	savedfr = 0
+	s = mp3frame.sync.FileSyncWrapper(
+			mp3frame.sync.PhysicalFrameSync(), input_file)
+	for (typ, item) in s.items():
+		if atend:
+			saved.append( (typ,item) )
+			if typ == 'frame':
+				savedfr += 1
+			
+			if savedfr <= len(adj_args):
+				continue
+			else:
+				(typ, item) = saved.pop(0)
+				if typ == 'frame':
+					savedfr -= 1
+				# process the old item
+		elif adj_args and (typ == 'frame'):
+			adj_frame(item)
+		
+		if output_file:
+			item.tofile(output_file)
+	
+	if atend:
+		print 'saved',len(saved), 'savedfr',savedfr, 'args', adj_args
+		for (typ, item) in saved:
+			print 'fr!'
+			if typ == 'frame':
+				adj_frame(item)
+			if output_file:
+				item.tofile(output_file)
+
+
+def main():
+	optparser = OptionParser()
+	optparser.usage = "%prog --in/--out [options] MP3FILE"
+	optparser.add_option('-o', '--output-file', dest='output',
+			help="write output to OUTFILE", metavar='OUTFILE')
+	optparser.add_option('--in', action='store_const',
+			dest='direction', const='in', help="fade in")
+	optparser.add_option('--out', action='store_const',
+			dest='direction', const='out', help="fade out")
+	optparser.add_option('-n', '--frames', action='store',
+			type='int', dest='frames',
+			metavar="N", help="fade across N frames")
+	optparser.add_option('-r', '--rate', action='store',
+			type='float', dest='rate',
+			metavar="N", help="fade N dB per frame")
+	optparser.add_option('--print-raw-gain', default=False,
+			action='store_true', dest='printraw',
+			help="prints the raw gain values")
+	optparser.add_option('--set-raw-gain',
+			action='store', dest='setraw', type='string',
+			metavar='N,...', help="sets the raw gain values")
+	
+	(options, args) = optparser.parse_args()
+	if not (len(args) == 1 and options.direction):
+		optparser.print_help()
+		return
+	
+	input_name = args[0]
+	output_name = options.output
+	assert output_name is not None  #TODO: make a default name
+	
+	gains = []
+	def collect_gain(ggain, arg):
+		gains.append(ggain)
+		return ggain
+	def set_gain(ggain, arg):
+		return arg
+	def add_gain(ggain, arg):
+		return max(0, min(255, ggain + arg))
+	
+	print "Reading file: %s" % input_name
+	print "Writing file: %s" % output_name
+	input_file = file(input_name, 'rb')
+	output_file = file(output_name, 'wb')
+	atend = (options.direction == 'out')
+	
+	assert atend  #TODO
+	assert options.frames  #TODO
+	assert options.rate #TODO
+	adj_args = []
+	for i in range(options.frames):
+		# adjusting global_gain by 1 changes volume by 2.5 dB
+		adj_args.append( -int(round(i * options.rate / 2.5)) )
+	
+	adjust_fn = add_gain #XXX
+	adjust_gain(input_file, output_file, atend, adjust_fn, adj_args)
+	input_file.close()
+	output_file.close()
+
+if __name__ == "__main__":
+	main()
